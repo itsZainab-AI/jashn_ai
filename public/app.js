@@ -4,8 +4,135 @@ const form = $('#wizard'), steps = [...form.querySelectorAll('.step')];
 const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let step = 0;
+let currentUser = null;
 
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+function showScreen(id) {
+  ['splash-screen', 'hero', 'login-screen', 'register-screen', 'dashboard-screen'].forEach((screenId) => {
+    $(`#${screenId}`).hidden = screenId !== id;
+  });
+  form.hidden = true;
+  $('#loading').hidden = true;
+  $('#result').hidden = true;
+  $('#rsvpView').hidden = true;
+  $('#account-nav').hidden = id === 'splash-screen';
+  window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+}
+
+function setUser(user) {
+  currentUser = user;
+  $('#guest-nav').hidden = Boolean(user);
+  $('#user-nav').hidden = !user;
+  $('#user-greeting').textContent = user ? `Hi, ${user.name}` : '';
+  $('#account-status').textContent = '';
+}
+
+$('#enter-app').onclick = () => showScreen('hero');
+document.querySelectorAll('[data-screen]').forEach((button) => {
+  button.addEventListener('click', () => showScreen(button.dataset.screen));
+});
+document.querySelectorAll('[data-auth-form]').forEach((authForm) => {
+  authForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    submitAuth(authForm);
+  });
+});
+
+async function submitAuth(authForm) {
+  const status = authForm.querySelector('.auth-status');
+  const submit = authForm.querySelector('[type="submit"]');
+  const data = Object.fromEntries(new FormData(authForm));
+  status.textContent = '';
+  submit.disabled = true;
+  try {
+    const response = await fetch(`/api/auth/${authForm.dataset.authForm}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'We couldn’t complete that request.');
+    setUser(result.user);
+    authForm.reset();
+    showScreen('hero');
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    authForm.querySelector('[name="password"]').value = '';
+    submit.disabled = false;
+  }
+}
+
+$('#dashboard-link').onclick = loadDashboard;
+$('#dashboard-plan').onclick = () => showScreen('hero');
+$('#logout').onclick = async () => {
+  const logout = $('#logout');
+  logout.disabled = true;
+  try {
+    const response = await fetch('/api/auth/logout', { method: 'POST' });
+    if (!response.ok) throw new Error('Could not log out. Please try again.');
+    setUser(null);
+    showScreen('hero');
+  } catch (error) {
+    $('#dashboard-status').textContent = error.message;
+  } finally {
+    logout.disabled = false;
+  }
+};
+
+async function loadDashboard() {
+  showScreen('dashboard-screen');
+  const status = $('#dashboard-status');
+  const cards = $('#saved-plans');
+  status.textContent = 'Loading your plans…';
+  cards.replaceChildren();
+  try {
+    const response = await fetch('/api/plans');
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not load your plans.');
+    status.textContent = result.plans.length ? '' : 'Your saved celebrations will appear here.';
+    if (!result.plans.length) {
+      cards.append(el('p', 'empty-plans', 'No plans yet — your next big idea starts with one click.'));
+      return;
+    }
+    result.plans.forEach((plan) => {
+      const card = el('article', 'saved-plan');
+      const title = `${plan.event_type[0].toUpperCase()}${plan.event_type.slice(1)} celebration`;
+      const date = new Date(`${plan.event_date}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+      card.append(el('h2', '', title), el('p', '', `${date}${plan.city ? ` · ${plan.city}` : ''}`));
+      const open = el('button', 'btn', 'Open plan');
+      open.type = 'button';
+      open.onclick = () => openSavedPlan(plan.id);
+      card.append(open);
+      cards.append(card);
+    });
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+
+async function openSavedPlan(id) {
+  $('#dashboard-status').textContent = 'Opening your plan…';
+  try {
+    const response = await fetch(`/api/plans/${encodeURIComponent(id)}`);
+    const plan = await response.json();
+    if (!response.ok) throw new Error(plan.error || 'Could not open this plan.');
+    await render(plan);
+  } catch (error) {
+    $('#dashboard-status').textContent = error.message;
+  }
+}
+
+fetch('/api/auth/me')
+  .then(async (response) => {
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not check your account session.');
+    setUser(result.user);
+  })
+  .catch(() => {
+    $('#account-status').textContent = 'Your account session could not be checked. You can still explore as a guest.';
+  });
 
 // floating emojis in the background
 if (!reduce) for (let i = 0; i < 12; i++) {
@@ -36,7 +163,13 @@ function show(n) {
   steps[n].querySelector('input,textarea')?.focus({ preventScroll: true });
 }
 
-$('#start').onclick = () => { $('#hero').hidden = true; form.hidden = false; show(0); };
+$('#start').onclick = () => {
+  $('#hero').hidden = true;
+  $('#account-nav').hidden = true;
+  form.reset();
+  form.hidden = false;
+  show(0);
+};
 $('#back').onclick = () => show(step - 1);
 $('#next').onclick = () => {
   const bad = [...steps[step].querySelectorAll('input,textarea')].find((i) => !i.checkValidity());
@@ -53,7 +186,17 @@ async function submit() {
     const res = await fetch('/api/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(form))) });
     const data = await res.json();
     if (!res.ok) throw new Error((data.errors || ['Something went wrong.']).join(' '));
-    render(data);
+    if (data.planId && !currentUser) {
+      try {
+        const sessionResponse = await fetch('/api/auth/me');
+        const session = await sessionResponse.json();
+        if (!sessionResponse.ok) throw new Error(session.error || 'Could not check account session.');
+        if (session.user) setUser(session.user);
+      } catch {
+        $('#account-status').textContent = 'Your plan was saved, but the account session could not be checked. Reload before opening My celebrations.';
+      }
+    }
+    await render(data);
   } catch (e) {
     $('#loading').hidden = true; form.hidden = false; show(1); $('#error').textContent = e.message;
   } finally { clearInterval(t); }
@@ -61,10 +204,41 @@ async function submit() {
 
 function section(title) { const s = el('section', 'reveal'); s.append(el('h2', '', title)); return s; }
 
-function render(d) {
+async function render(d) {
+  $('#splash-screen').hidden = true;
+  $('#hero').hidden = true;
+  $('#login-screen').hidden = true;
+  $('#register-screen').hidden = true;
+  $('#dashboard-screen').hidden = true;
+  $('#account-nav').hidden = !currentUser;
   $('#loading').hidden = true;
   const out = $('#result'); out.replaceChildren(); out.hidden = false;
 
+  let progress = { checkedChecklist: [], guests: [] };
+  let progressReady = !d.planId;
+  const progressStatus = el('p', 'progress-status', '');
+  if (d.planId) {
+    progressStatus.textContent = 'Loading saved checklist and guest list…';
+    out.append(progressStatus);
+    try {
+      const response = await fetch(`/api/plans/${encodeURIComponent(d.planId)}/progress`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not load saved progress.');
+      progress = result.progress;
+      progressReady = true;
+      progressStatus.textContent = '';
+    } catch (error) {
+      progressStatus.dataset.unavailable = 'true';
+      const retry = el('button', 'text-button', 'Retry');
+      retry.type = 'button';
+      retry.onclick = () => openSavedPlan(d.planId);
+      progressStatus.replaceChildren(el('span', '', `${error.message} Your saved progress is protected until it loads.`), retry);
+      out.append(progressStatus);
+    }
+  }
+
+  if (d.planId) out.append(el('p', 'saved-notice', 'Saved to your account · open it anytime from My celebrations.'));
+  if ($('#account-status').textContent) out.append(el('p', 'saved-notice', $('#account-status').textContent));
   const hero = el('div', 'themeCard'); hero.append(el('h2', '', d.ai.theme), el('p', '', d.ai.tagline));
   hero.append(el('small', '', `${inr.format(d.budget.perGuest)} per guest`));
   out.append(hero);
@@ -81,11 +255,23 @@ function render(d) {
   d.timeline.forEach((m) => { const li = el('li'); const time = el('time', '', new Date(m.due).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })); li.append(time, el('span', '', m.task)); ul.append(li); });
   tl.append(ul);
 
-  const key = `jashn:${d.event.type}:${d.event.date}`; let saved = []; try { saved = JSON.parse(localStorage.getItem(key)) || []; } catch {}
+  const key = `jashn:${d.event.type}:${d.event.date}`;
+  let saved = d.planId ? progress.checkedChecklist : [];
+  if (!d.planId) { try { saved = JSON.parse(localStorage.getItem(key)) || []; } catch {} }
   const ck = section('Vendor checklist'); const box = el('div', 'chk');
   d.checklist.forEach((c) => {
-    const l = el('label'); const i = el('input'); i.type = 'checkbox'; i.checked = saved.includes(c.id);
-    i.onchange = () => { const ids = [...box.querySelectorAll('input')].flatMap((x, k) => (x.checked ? [k] : [])); try { localStorage.setItem(key, JSON.stringify(ids)); } catch {} if (ids.length === d.checklist.length) burst(); };
+    const l = el('label'); const i = el('input'); i.type = 'checkbox'; i.checked = saved.includes(c.id); i.disabled = !progressReady;
+    i.onchange = () => {
+      const ids = [...box.querySelectorAll('input')].flatMap((input, k) => (input.checked ? [k] : []));
+      if (d.planId) {
+        progress.checkedChecklist = ids;
+        queueProgressSave(d.planId, progress, progressStatus);
+      } else {
+        try { localStorage.setItem(key, JSON.stringify(ids)); }
+        catch { $('#account-status').textContent = 'Could not save checklist progress in this browser.'; }
+      }
+      if (ids.length === d.checklist.length) burst();
+    };
     l.append(i, el('span', '', c.item)); box.append(l);
   });
   ck.append(box);
@@ -96,14 +282,40 @@ function render(d) {
 
   const toast = el('p', 'toast reveal', d.ai.toast ? `“${d.ai.toast}”` : '');
   const venueSection = renderVenues(d);
-  const guestSection = renderGuests(d);
-  const act = el('div', 'actions reveal'); const print = el('button', 'btn', 'Save as PDF'); print.onclick = () => print_(); const again = el('button', 'btn ghost', 'Plan another'); again.onclick = () => location.reload();
+  const guestSection = renderGuests(d, progress, progressReady, progressStatus);
+  const act = el('div', 'actions reveal'); const print = el('button', 'btn', 'Save as PDF'); print.onclick = () => print_(); const again = el('button', 'btn ghost', 'Plan another'); again.onclick = () => showScreen('hero');
   act.append(print, again);
+  if (currentUser && d.planId) {
+    const plans = el('button', 'btn ghost', 'My celebrations');
+    plans.onclick = loadDashboard;
+    act.append(plans);
+  }
   out.append(venueSection, guestSection, b, tl, ck, id, toast, act);
 
   burst(); out.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth' });
   const io = new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && e.target.classList.add('in')), { threshold: 0.1 });
   out.querySelectorAll('.reveal').forEach((n) => io.observe(n));
+}
+
+let progressSaveQueue = Promise.resolve();
+function queueProgressSave(planId, progress, status) {
+  if (status.dataset.unavailable) return;
+  const snapshot = {
+    checkedChecklist: [...progress.checkedChecklist],
+    guests: progress.guests.map((guest) => ({ ...guest })),
+  };
+  progressSaveQueue = progressSaveQueue.then(async () => {
+    const response = await fetch(`/api/plans/${encodeURIComponent(planId)}/progress`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(snapshot),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not save your progress.');
+    status.textContent = '';
+  }).catch((error) => {
+    status.textContent = `${error.message} Your latest changes may not be saved.`;
+  });
 }
 
 function renderVenues(d) {
@@ -149,7 +361,7 @@ function renderVenues(d) {
   return s;
 }
 
-function renderGuests(d) {
+function renderGuests(d, progress, progressReady, progressStatus) {
   const s = section('Your guest list & RSVP link');
   const inviteUrl = new URL(location.href);
   inviteUrl.search = ''; inviteUrl.hash = ''; inviteUrl.searchParams.set('rsvp', d.invite.id);
@@ -167,12 +379,14 @@ function renderGuests(d) {
 
   const guestForm = el('form', 'guest-form');
   const name = el('input'); name.type = 'text'; name.maxLength = 80; name.required = true; name.placeholder = 'Guest name'; name.setAttribute('aria-label', 'Guest name');
+  name.disabled = !progressReady;
   const add = el('button', 'btn', 'Add guest'); add.type = 'submit';
+  add.disabled = !progressReady;
   guestForm.append(name, add);
   const list = el('ul', 'guest-list');
   const summary = el('p', 'guest-summary', 'Loading guest responses…');
   const storageKey = `jashn:guests:${d.invite.id}`;
-  const saved = readList(storageKey);
+  const saved = d.planId ? progress.guests : readList(storageKey);
   let replies = [];
   let repliesLoaded = false;
   let replyError = '';
@@ -189,9 +403,20 @@ function renderGuests(d) {
     saved.forEach((guest, index) => {
       const li = el('li', 'guest-row');
       const details = el('span', '', `${guest.name} · ${guest.status === 'attending' ? 'Going' : guest.status === 'declined' ? 'Can’t make it' : 'Awaiting RSVP'}`);
-      const remove = el('button', 'guest-remove', 'Remove'); remove.type = 'button'; remove.setAttribute('aria-label', `Remove ${guest.name}`);
-      remove.onclick = () => { saved.splice(index, 1); saveList(storageKey, saved); updateLocalList(); };
-      li.append(details, remove); list.append(li);
+      li.append(details);
+      if (guest.status === 'pending') {
+        const remove = el('button', 'guest-remove', 'Remove'); remove.type = 'button'; remove.disabled = !progressReady; remove.setAttribute('aria-label', `Remove ${guest.name}`);
+        remove.onclick = () => {
+          saved.splice(index, 1);
+          if (d.planId) {
+            progress.guests = saved;
+            queueProgressSave(d.planId, progress, progressStatus);
+          } else saveList(storageKey, saved);
+          updateLocalList();
+        };
+        li.append(remove);
+      }
+      list.append(li);
     });
     if (saved.length) list.hidden = false;
     updateSummary();
@@ -200,12 +425,24 @@ function renderGuests(d) {
     event.preventDefault();
     const guestName = name.value.trim();
     if (!guestName) return;
+    if (d.planId && saved.length >= 40) {
+      progressStatus.textContent = 'Your host guest list is full. The limit is 40 names per celebration.';
+      return;
+    }
     saved.push({ name: guestName.slice(0, 80), status: 'pending' });
-    saveList(storageKey, saved); name.value = ''; updateLocalList(); name.focus();
+    if (d.planId) {
+      progress.guests = saved;
+      queueProgressSave(d.planId, progress, progressStatus);
+    } else saveList(storageKey, saved);
+    name.value = ''; updateLocalList(); name.focus();
   };
   updateLocalList();
 
-  fetch(`/api/rsvp/${encodeURIComponent(d.invite.id)}/guests`, { headers: { 'x-manage-token': d.invite.manageToken } })
+  const guestUrl = d.planId
+    ? `/api/plans/${encodeURIComponent(d.planId)}/guests`
+    : `/api/rsvp/${encodeURIComponent(d.invite.id)}/guests`;
+  const guestOptions = d.planId ? {} : { headers: { 'x-manage-token': d.invite.manageToken } };
+  fetch(guestUrl, guestOptions)
     .then(async (response) => {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Could not load RSVP responses.');
@@ -238,6 +475,11 @@ function saveList(key, value) {
 }
 
 async function showRsvpPage(id) {
+  $('#splash-screen').hidden = true;
+  $('#login-screen').hidden = true;
+  $('#register-screen').hidden = true;
+  $('#dashboard-screen').hidden = true;
+  $('#account-nav').hidden = true;
   $('#hero').hidden = true; form.hidden = true; $('#loading').hidden = true; $('#result').hidden = true;
   const view = $('#rsvpView'); view.hidden = false; view.replaceChildren(el('p', '', 'Loading your invitation…'));
   try {

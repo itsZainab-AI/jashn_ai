@@ -12,16 +12,88 @@
 <body>
 <div class="blobs" aria-hidden="true"><i></i><i></i><i></i></div>
 <div id="floaters" aria-hidden="true"></div>
-<a class="skip" href="#main">Skip to planner</a>
+<a class="skip" href="#main">Skip to content</a>
 
-<header class="top"><span class="logo">jashn<span>✦</span></span></header>
+<header class="top">
+  <span class="logo">jashn<span>✦</span></span>
+  <nav id="account-nav" aria-label="Main navigation" hidden>
+    <div id="guest-nav">
+      <button type="button" class="text-button" data-screen="hero">Home</button>
+      <button type="button" class="text-button" data-screen="login-screen">Log in</button>
+      <button type="button" class="btn nav-cta" data-screen="register-screen">Sign up</button>
+    </div>
+    <div id="user-nav" hidden>
+      <button type="button" class="text-button" id="dashboard-link">My celebrations</button>
+      <span id="user-greeting"></span>
+      <button type="button" class="text-button" id="logout">Log out</button>
+    </div>
+  </nav>
+</header>
 
 <main id="main">
-  <section id="hero" class="hero">
+  <section id="splash-screen" class="splash-screen">
+    <div class="splash-art" aria-hidden="true"><span>✦</span><span>✿</span><span>✧</span></div>
+    <p class="eyebrow">YOUR CELEBRATION, YOUR WAY</p>
+    <p class="splash-wordmark">jashn<span>✦</span></p>
+    <h1>Make room for <em>the moment.</em></h1>
+    <p class="lead">A little help planning. A lot more time celebrating.</p>
+    <button type="button" class="btn" id="enter-app">Come on in <span aria-hidden="true">→</span></button>
+    <p class="splash-foot">Weddings · Birthdays · Community</p>
+  </section>
+
+  <section id="hero" class="hero" hidden>
     <p class="chip">weddings · birthdays · community events</p>
     <h1>Let's plan a <em>celebration</em> they'll still talk about.</h1>
     <p class="lead">Tell me the occasion. I'll hand you the budget, the timeline, the vendor list and the ideas. You just show up glowing.</p>
-    <button class="btn" id="start">Start planning ✨</button>
+    <div class="hero-actions">
+      <button class="btn" id="start">Start planning ✨</button>
+      <button type="button" class="btn ghost" data-screen="register-screen">Create a free account</button>
+    </div>
+    <p class="guest-note">Want to explore first? Start planning without an account.</p>
+    <div class="feature-row" aria-label="Planner features">
+      <article><span aria-hidden="true">✦</span><h2>Plans that add up</h2><p>Build a budget and timeline around your day.</p></article>
+      <article><span aria-hidden="true">♡</span><h2>Bring everyone in</h2><p>Keep a guest list and share a simple RSVP link.</p></article>
+      <article><span aria-hidden="true">⌖</span><h2>Find your place</h2><p>Explore real venue listings near your celebration.</p></article>
+    </div>
+    <p id="account-status" class="info-note" role="status" aria-live="polite"></p>
+  </section>
+
+  <section id="login-screen" class="auth-screen card" hidden>
+    <button type="button" class="back-link" data-screen="hero">← Back to home</button>
+    <p class="chip">WELCOME BACK</p>
+    <h1>Good to see you.</h1>
+    <p class="lead">Your next celebration is waiting.</p>
+    <form class="auth-form" data-auth-form="login">
+      <label class="f">Email address<input type="email" name="email" autocomplete="email" placeholder="you@example.com" required></label>
+      <label class="f">Password<input type="password" name="password" autocomplete="current-password" minlength="8" maxlength="128" placeholder="At least 8 characters" required></label>
+      <p class="auth-status" role="status" aria-live="polite"></p>
+      <button type="submit" class="btn">Log in</button>
+    </form>
+    <p class="auth-switch">New to Jashn? <button type="button" class="text-button" data-screen="register-screen">Create an account</button></p>
+  </section>
+
+  <section id="register-screen" class="auth-screen card" hidden>
+    <button type="button" class="back-link" data-screen="hero">← Back to home</button>
+    <p class="chip">LET'S GET THIS PARTY STARTED</p>
+    <h1>Your celebrations, all in one place.</h1>
+    <p class="lead">Create an account to keep your plans together.</p>
+    <form class="auth-form" data-auth-form="register">
+      <label class="f">Your name<input type="text" name="name" autocomplete="name" maxlength="80" placeholder="Aarav Sharma" required></label>
+      <label class="f">Email address<input type="email" name="email" autocomplete="email" placeholder="you@example.com" required></label>
+      <label class="f">Create a password<input type="password" name="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="At least 8 characters" required></label>
+      <p class="auth-status" role="status" aria-live="polite"></p>
+      <button type="submit" class="btn">Create account</button>
+    </form>
+    <p class="auth-switch">Already have an account? <button type="button" class="text-button" data-screen="login-screen">Log in</button></p>
+  </section>
+
+  <section id="dashboard-screen" class="dashboard-screen" hidden>
+    <div class="dashboard-heading">
+      <div><p class="chip">YOUR JASHN SPACE</p><h1>My celebrations</h1><p class="lead">Your plans, together in one place.</p></div>
+      <button type="button" class="btn" id="dashboard-plan">Plan a celebration ✨</button>
+    </div>
+    <p id="dashboard-status" class="section-note" role="status" aria-live="polite"></p>
+    <div id="saved-plans" class="saved-plans"></div>
   </section>
 
   <form id="wizard" class="card" hidden novalidate>
