@@ -17,7 +17,7 @@ The app splits the work on purpose:
 ## How it works
 1. The browser sends `POST /api/plan` with `type, date, guests, budget, city, vibe, tone`.
 2. The server validates and cleans the input, builds budget, timeline and checklist, asks Gemini for ideas, and (when configured) searches Google Places for actual nearby venues and venue photos.
-3. Signed-in users' plans, checked vendor items, host-maintained guest lists, and RSVP links are saved in SQLite. RSVP replies are stored persistently; the host can view them through their account, while guest-mode plans use a private management token.
+3. Signed-in users' plans, checked vendor items, host-maintained guest lists, and RSVP links are saved in SQLite. Hosts can edit/remove invitees, send or resend email invitations when SMTP is configured, and edit/delete RSVP replies. RSVP replies are stored persistently; the host can view them through their account, while guest-mode plans use a private management token.
 4. "Save as PDF" uses the print stylesheet.
 
 ## Run it
@@ -29,15 +29,18 @@ npm test
 ```
 Needs Node 22 or newer. The SQLite database is created automatically at `data/jashn.sqlite` (override with `DATABASE_PATH`). It is ignored by Git. Works without an AI key too (fallback ideas).
 
-For deployment, use HTTPS and set `NODE_ENV=production` so session cookies are marked `Secure`. Back up the SQLite file securely. Email verification and password reset are not implemented yet.
+Email verification and password reset require valid SMTP settings in `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`) and `APP_URL` set to the app's public root URL. The verification link expires after 24 hours; password-reset links expire after 1 hour, are one-use, and invalidate existing sessions when used. Without SMTP configuration, registration clearly reports that email delivery is unavailable.
+Accounts created before email verification was enabled must verify their address before they can log in; use the resend-verification action on the login screen.
+
+For deployment, use HTTPS and set `NODE_ENV=production` so session cookies are marked `Secure`. Back up the SQLite file securely. Account emails are verified, but email-change flows and stronger production email deliverability/monitoring are not included.
 
 For live venue recommendations and venue photos, enable the **Places API (New)** for a Google Maps Platform project, set `GOOGLE_MAPS_API_KEY` in `.env`, and ensure billing/API restrictions are configured in Google Cloud. Without it, Jashn shows an honest setup note and a direct Google Maps search for current local listings rather than fabricated venue data.
 
 ## Evaluation focus
 - **Code quality:** small modules, pure functions, no framework lock in.
-- **Security:** `helmet` with a strict CSP, 20kb JSON body limit, rate limits on planning/auth/RSVP endpoints, parameterized SQLite queries, scrypt password hashes, random server-side sessions stored as token hashes, HttpOnly/SameSite session cookies, protected user-owned plan routes, strict validation, user text passed to the model as delimited untrusted data, AI output re-validated and length capped, UI built with `textContent` (no `innerHTML`), API key only on the server and never logged.
+- **Security:** `helmet` with a strict CSP, 20kb JSON body limit, rate limits on planning/auth/RSVP endpoints, parameterized SQLite queries, scrypt password hashes, hashed one-time verification/reset tokens, random server-side sessions stored as token hashes, HttpOnly/SameSite session cookies, protected user-owned plan routes, strict validation, user text passed to the model as delimited untrusted data, AI output re-validated and length capped, UI built with `textContent` (no `innerHTML`), API key only on the server and never logged.
 - **Efficiency:** one AI call per plan, in-memory cache for repeat requests, 20s timeout, no frontend dependencies.
-- **Testing:** `npm test` covers validation, budget maths, timeline edge cases, tone handling, AI parsing, account registration/login/logout, saved-plan ownership and progress, and RSVP behavior.
+- **Testing:** `npm test` covers validation, budget maths, timeline edge cases, tone handling, AI parsing, email verification, password reset, account registration/login/logout, saved-plan ownership and progress, and RSVP behavior.
 - **Accessibility:** semantic fieldsets and labels, keyboard friendly wizard, visible focus, skip link, live regions for progress and errors, dark mode, and `prefers-reduced-motion` turns off all animation.
 - **Problem alignment:** budgets, timelines, vendor checklists and personalised ideas for the three named event types.
 
@@ -46,7 +49,8 @@ For live venue recommendations and venue photos, enable the **Places API (New)**
 - Dates must be today up to 3 years ahead. If the event is closer than the ideal lead time, the timeline is compressed so nothing is dated in the past.
 - Plans, users, sessions, RSVP events and replies are stored in SQLite. Keep `data/jashn.sqlite` backed up and private; do not commit it.
 - For signed-in users, the host-maintained guest list and checked vendor items are stored in SQLite per plan. Guest-mode planning keeps these items in browser local storage. Replies submitted through RSVP links are stored in SQLite.
+- Saved-plan hosts can store an optional email per invitee and send or resend the shared RSVP link. This requires working SMTP settings; copying and sharing the link remains available without email delivery.
 - A signed-in host guest list supports up to 40 manually added guests per plan.
-- Account email addresses are not verified and there is no password reset flow yet. Add those before relying on accounts for a public production service.
+- Users must verify their email before logging in. Email delivery depends on correct SMTP settings; configure provider-specific SPF/DKIM and delivery monitoring before public launch.
 - Venue results and photos are fetched live from Google Places. Google-provided photo attributions are shown when supplied; availability and prices must be confirmed with the venue.
 - The free Gemini tier has rate limits, which is why there is caching and a fallback.

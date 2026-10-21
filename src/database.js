@@ -19,6 +19,7 @@ db.exec(`
     name TEXT NOT NULL,
     email TEXT NOT NULL UNIQUE COLLATE NOCASE,
     password_hash TEXT NOT NULL,
+    email_verified_at TEXT,
     created_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS sessions (
@@ -28,6 +29,14 @@ db.exec(`
     created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
+  CREATE TABLE IF NOT EXISTS account_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL CHECK (purpose IN ('email_verification', 'password_reset')),
+    expires_at INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS account_tokens_user_purpose ON account_tokens(user_id, purpose);
   CREATE TABLE IF NOT EXISTS plans (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -64,9 +73,31 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS rsvp_guests_event ON rsvp_guests(event_id, id);
 `);
 
+const userColumns = db.prepare('PRAGMA table_info(users)').all();
+if (!userColumns.some((column) => column.name === 'email_verified_at')) {
+  db.exec('ALTER TABLE users ADD COLUMN email_verified_at TEXT');
+}
+
 const statements = {
   createUser: db.prepare('INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)'),
-  getUserByEmail: db.prepare('SELECT id, name, email, password_hash FROM users WHERE email = ? COLLATE NOCASE'),
+  getUserByEmail: db.prepare('SELECT id, name, email, password_hash, email_verified_at AS emailVerifiedAt FROM users WHERE email = ? COLLATE NOCASE'),
+  getUser: db.prepare('SELECT id, name, email, email_verified_at AS emailVerifiedAt FROM users WHERE id = ?'),
+  verifyUser: db.prepare('UPDATE users SET email_verified_at = ? WHERE id = ?'),
+  updatePassword: db.prepare('UPDATE users SET password_hash = ? WHERE id = ?'),
+  deleteUser: db.prepare('DELETE FROM users WHERE id = ?'),
+  createAccountToken: db.prepare(`
+    INSERT INTO account_tokens (token_hash, user_id, purpose, expires_at, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `),
+  getAccountToken: db.prepare(`
+    SELECT users.id, users.name, users.email, users.email_verified_at AS emailVerifiedAt, account_tokens.purpose
+    FROM account_tokens JOIN users ON users.id = account_tokens.user_id
+    WHERE account_tokens.token_hash = ? AND account_tokens.expires_at > ?
+  `),
+  deleteAccountToken: db.prepare('DELETE FROM account_tokens WHERE token_hash = ?'),
+  deleteAccountTokens: db.prepare('DELETE FROM account_tokens WHERE user_id = ? AND purpose = ?'),
+  deleteUserSessions: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
+  deleteExpiredAccountTokens: db.prepare('DELETE FROM account_tokens WHERE expires_at <= ?'),
   createSession: db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)'),
   getSessionUser: db.prepare(`
     SELECT users.id, users.name, users.email
@@ -108,9 +139,14 @@ const statements = {
     VALUES (?, ?, ?, ?, ?)
   `),
   listRsvpGuests: db.prepare(`
-    SELECT name, attending, party_size AS partySize, created_at AS createdAt
+    SELECT id, name, attending, party_size AS partySize, created_at AS createdAt
     FROM rsvp_guests WHERE event_id = ? ORDER BY id
   `),
+  updateRsvpGuest: db.prepare(`
+    UPDATE rsvp_guests SET name = ?, attending = ?, party_size = ?
+    WHERE id = ? AND event_id = ?
+  `),
+  deleteRsvpGuest: db.prepare('DELETE FROM rsvp_guests WHERE id = ? AND event_id = ?'),
 };
 
 function close() {

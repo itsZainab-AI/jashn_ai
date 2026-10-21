@@ -54,6 +54,10 @@ h1{font-size:clamp(2.2rem,7vw,4rem);line-height:1.1;margin:.8rem 0}
 .auth-form>.btn{width:100%}
 .auth-status{font-size:.88rem;font-weight:800;min-height:1.3em}
 .auth-switch{text-align:center;margin:1.3rem 0 0;font-size:.94rem}
+.auth-extras{display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;margin:.55rem 0}
+.auth-extras .text-button{font-size:.86rem}
+.auth-status:empty{display:none}
+.auth-form .btn:disabled,.btn:disabled,.text-button:disabled,.guest-remove:disabled{opacity:.55;cursor:wait;transform:none}
 .dashboard-screen{padding:2.5rem 0}
 .dashboard-heading{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1.2rem}
 .dashboard-heading h1{font-size:clamp(2rem,6vw,3.2rem);margin:.5rem 0}
@@ -130,12 +134,18 @@ input[type=date],input[type=number],input[type=text],input[type=url],textarea,se
 .share-box{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.7rem;align-items:end;background:var(--card);border-radius:20px;padding:1rem;margin:1rem 0}
 .share-box .f{margin:0}.share-box .btn{padding:.75rem 1.2rem}
 .copy-status{grid-column:1/-1;min-height:1.3em;font-size:.9rem}
-.guest-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.7rem;margin:1rem 0}
+.guest-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:.7rem;margin:1rem 0}
 .guest-form .btn{padding:.75rem 1.2rem}
 .guest-summary{font-weight:800}
 .guest-list{list-style:none;padding:0;margin:.5rem 0}
 .guest-row{display:flex;justify-content:space-between;gap:1rem;align-items:center;background:var(--card);border-radius:14px;padding:.65rem .9rem;margin:.4rem 0}
+.guest-details{display:grid;min-width:0}.guest-details span{font-size:.88rem;overflow-wrap:anywhere}
+.guest-controls{display:flex;align-items:center;justify-content:flex-end;gap:.5rem;flex-wrap:wrap}
 .guest-remove{border:0;background:transparent;color:#a32669;font:800 .9rem Nunito,sans-serif;cursor:pointer}
+.guest-status,.invite-status{font-size:.85rem;font-weight:800;color:#a32669}
+.guest-edit-form{display:grid;width:100%;grid-template-columns:repeat(2,minmax(0,1fr));gap:.6rem}
+.guest-edit-form input,.guest-edit-form select{min-width:0;width:100%;padding:.55rem .7rem;border-radius:12px;border:1px solid #b69bff88;background:var(--card);color:var(--ink);font:inherit}
+.guest-edit-form .text-button{padding:.3rem}
 .rsvp-view{max-width:620px;margin:4vh auto;text-align:center}
 .rsvp-view h1{font-size:clamp(2rem,7vw,3.3rem)}
 .reply-form{text-align:left;max-width:440px;margin:1.4rem auto 0}
@@ -150,7 +160,7 @@ input[type=date],input[type=number],input[type=text],input[type=url],textarea,se
 .confetti{position:fixed;top:-10px;width:10px;height:14px;z-index:20;animation:fall 2.4s ease-in forwards;pointer-events:none}
 @keyframes fall{to{transform:translate(var(--x),105vh) rotate(720deg)}}
 footer{text-align:center;padding:2rem;font-size:.9rem;opacity:.75}
-@media (max-width:520px){.row{grid-template-columns:1fr auto}.row .track{grid-column:1/-1}.share-box,.guest-form{grid-template-columns:1fr}.share-box .btn,.guest-form .btn{width:100%}}
+@media (max-width:520px){.row{grid-template-columns:1fr auto}.row .track{grid-column:1/-1}.share-box,.guest-form{grid-template-columns:1fr}.share-box .btn,.guest-form .btn{width:100%}.guest-row{align-items:flex-start;flex-direction:column}.guest-controls{justify-content:flex-start}.guest-edit-form{grid-template-columns:1fr}}
 @media print{.blobs,#floaters,.top,footer,.actions,.skip{display:none}body{background:#fff}.reveal{opacity:1;transform:none}}
 @media (max-width:620px){.feature-row{grid-template-columns:1fr}.feature-row article{display:grid;grid-template-columns:auto 1fr;column-gap:.7rem;align-items:center}.feature-row article>span{grid-row:span 2}.feature-row h2{margin:0}.feature-row p{grid-column:2}.hero-actions{flex-direction:column;align-items:stretch}.hero-actions .btn{width:100%}.splash-art{inset:8% 2% auto}#account-nav{gap:.1rem}#guest-nav,#user-nav{gap:.1rem}#user-greeting{display:none}.top{padding:.8rem 1rem}.dashboard-heading{align-items:flex-start;flex-direction:column}.dashboard-heading>.btn{width:100%}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}.track b{width:var(--w)!important}#floaters,.confetti{display:none}}

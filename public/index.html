@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>Jashn | Plan your celebration like the main character</title>
 <meta name="description" content="Weddings, birthdays and community events planned with budgets, timelines, vendor checklists and AI ideas.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -69,6 +70,10 @@
       <p class="auth-status" role="status" aria-live="polite"></p>
       <button type="submit" class="btn">Log in</button>
     </form>
+    <div class="auth-extras">
+      <button type="button" class="text-button" data-account-action="password-reset">Forgot password?</button>
+      <button type="button" class="text-button" id="resend-verification" hidden>Resend verification email</button>
+    </div>
     <p class="auth-switch">New to Jashn? <button type="button" class="text-button" data-screen="register-screen">Create an account</button></p>
   </section>
 
@@ -85,6 +90,40 @@
       <button type="submit" class="btn">Create account</button>
     </form>
     <p class="auth-switch">Already have an account? <button type="button" class="text-button" data-screen="login-screen">Log in</button></p>
+  </section>
+
+  <section id="account-action-screen" class="auth-screen card" hidden>
+    <button type="button" class="back-link" data-screen="login-screen">← Back to log in</button>
+    <div id="verification-panel" hidden>
+      <p class="chip">ONE QUICK CHECK</p>
+      <h1>Check your inbox.</h1>
+      <p id="verification-message" class="lead" role="status" aria-live="polite">Checking your verification link…</p>
+      <form class="auth-form" id="resend-form">
+        <label class="f">Email address<input type="email" name="email" autocomplete="email" placeholder="you@example.com" required></label>
+        <p class="auth-status" role="status" aria-live="polite"></p>
+        <button type="submit" class="btn">Send a fresh verification link</button>
+      </form>
+    </div>
+    <div id="reset-request-panel" hidden>
+      <p class="chip">ACCOUNT RECOVERY</p>
+      <h1>Forgot your password?</h1>
+      <p class="lead">Enter your account email and we’ll send a reset link if there’s a verified account for it.</p>
+      <form class="auth-form" id="reset-request-form">
+        <label class="f">Email address<input type="email" name="email" autocomplete="email" placeholder="you@example.com" required></label>
+        <p class="auth-status" role="status" aria-live="polite"></p>
+        <button type="submit" class="btn">Send reset link</button>
+      </form>
+    </div>
+    <div id="reset-complete-panel" hidden>
+      <p class="chip">ALMOST THERE</p>
+      <h1>Choose a new password.</h1>
+      <form class="auth-form" id="reset-complete-form">
+        <label class="f">New password<input type="password" name="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="At least 8 characters" required></label>
+        <p class="auth-status" role="status" aria-live="polite"></p>
+        <button type="submit" class="btn">Update password</button>
+      </form>
+    </div>
+    <p id="account-action-status" class="auth-status" role="status" aria-live="polite"></p>
   </section>
 
   <section id="dashboard-screen" class="dashboard-screen" hidden>

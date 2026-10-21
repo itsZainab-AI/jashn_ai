@@ -61,6 +61,28 @@ function respond(id, input) {
   return { ok: true };
 }
 
+function updateResponse(id, guestId, input) {
+  const name = clean(input?.name, 80);
+  const attending = input?.attending;
+  const partySize = Number(input?.partySize);
+  if (!Number.isInteger(guestId) || guestId < 1 || !name || ![true, false].includes(attending)
+    || !Number.isInteger(partySize) || partySize < 1 || partySize > 20) {
+    return { ok: false, status: 400, error: 'Enter a valid name, attendance choice, and group size from 1 to 20.' };
+  }
+  const result = statements.updateRsvpGuest.run(name, Number(attending), partySize, guestId, id);
+  if (!result.changes) return { ok: false, status: 404, error: 'RSVP response not found.' };
+  return { ok: true };
+}
+
+function deleteResponse(id, guestId) {
+  if (!Number.isInteger(guestId) || guestId < 1) {
+    return { ok: false, status: 400, error: 'RSVP response not found.' };
+  }
+  const result = statements.deleteRsvpGuest.run(guestId, id);
+  if (!result.changes) return { ok: false, status: 404, error: 'RSVP response not found.' };
+  return { ok: true };
+}
+
 function isValidToken(expected, supplied) {
   if (typeof supplied !== 'string' || !/^[a-f0-9]{64}$/i.test(supplied)) return false;
   const actualHash = Buffer.from(hashToken(supplied), 'hex');
@@ -68,4 +90,4 @@ function isValidToken(expected, supplied) {
   return expectedHash.length === actualHash.length && timingSafeEqual(expectedHash, actualHash);
 }
 
-module.exports = { create, getPublicEvent, getGuests, getGuestsForOwner, respond };
+module.exports = { create, getPublicEvent, getGuests, getGuestsForOwner, respond, updateResponse, deleteResponse };

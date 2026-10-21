@@ -9,7 +9,7 @@ let currentUser = null;
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
 function showScreen(id) {
-  ['splash-screen', 'hero', 'login-screen', 'register-screen', 'dashboard-screen'].forEach((screenId) => {
+  ['splash-screen', 'hero', 'login-screen', 'register-screen', 'account-action-screen', 'dashboard-screen'].forEach((screenId) => {
     $(`#${screenId}`).hidden = screenId !== id;
   });
   form.hidden = true;
@@ -44,6 +44,7 @@ async function submitAuth(authForm) {
   const submit = authForm.querySelector('[type="submit"]');
   const data = Object.fromEntries(new FormData(authForm));
   status.textContent = '';
+  $('#resend-verification').hidden = true;
   submit.disabled = true;
   try {
     const response = await fetch(`/api/auth/${authForm.dataset.authForm}`, {
@@ -52,17 +53,94 @@ async function submitAuth(authForm) {
       body: JSON.stringify(data),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'We couldn’t complete that request.');
-    setUser(result.user);
+    if (!response.ok) {
+      const error = new Error(result.error || 'We couldn’t complete that request.');
+      error.code = result.code;
+      throw error;
+    }
     authForm.reset();
-    showScreen('hero');
+    if (authForm.dataset.authForm === 'register') {
+      showScreen('account-action-screen');
+      showAccountPanel('verification-panel');
+      $('#verification-message').textContent = result.message;
+    } else {
+      setUser(result.user);
+      showScreen('hero');
+    }
   } catch (error) {
     status.textContent = error.message;
+    if (error.code === 'EMAIL_NOT_VERIFIED') $('#resend-verification').hidden = false;
   } finally {
     authForm.querySelector('[name="password"]').value = '';
     submit.disabled = false;
   }
 }
+
+function showAccountPanel(panelId) {
+  ['verification-panel', 'reset-request-panel', 'reset-complete-panel'].forEach((id) => {
+    $(`#${id}`).hidden = id !== panelId;
+  });
+  $('#account-action-status').textContent = '';
+  showScreen('account-action-screen');
+}
+
+document.querySelectorAll('[data-account-action="password-reset"]').forEach((button) => {
+  button.onclick = () => showAccountPanel('reset-request-panel');
+});
+
+$('#resend-verification').onclick = () => {
+  const emailInput = $('#login-screen [name="email"]');
+  showAccountPanel('verification-panel');
+  $('#resend-form [name="email"]').value = emailInput.value;
+  $('#verification-message').textContent = 'Enter the email address for your account and we’ll send a fresh link if verification is still needed.';
+};
+
+function handleAccountForm(formId, endpoint, onSuccess) {
+  const accountForm = $(`#${formId}`);
+  accountForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const status = accountForm.querySelector('.auth-status');
+    const submit = accountForm.querySelector('[type="submit"]');
+    status.textContent = '';
+    submit.disabled = true;
+    try {
+      const payload = Object.fromEntries(new FormData(accountForm));
+      if (formId === 'reset-complete-form') payload.token = passwordResetToken;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'We couldn’t complete that request.');
+      onSuccess(result, accountForm);
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      const passwordInput = accountForm.querySelector('[name="password"]');
+      if (passwordInput) passwordInput.value = '';
+      submit.disabled = false;
+    }
+  });
+}
+
+handleAccountForm('resend-form', '/api/auth/verification/resend', (result, accountForm) => {
+  accountForm.querySelector('.auth-status').textContent = result.message;
+  accountForm.reset();
+});
+
+handleAccountForm('reset-request-form', '/api/auth/password-reset/request', (result, accountForm) => {
+  accountForm.querySelector('.auth-status').textContent = result.message;
+  accountForm.reset();
+});
+
+let passwordResetToken = '';
+handleAccountForm('reset-complete-form', '/api/auth/password-reset/complete', (result, accountForm) => {
+  accountForm.reset();
+  passwordResetToken = '';
+  $('#login-screen .auth-status').textContent = result.message;
+  showScreen('login-screen');
+});
 
 $('#dashboard-link').onclick = loadDashboard;
 $('#dashboard-plan').onclick = () => showScreen('hero');
@@ -133,6 +211,31 @@ fetch('/api/auth/me')
   .catch(() => {
     $('#account-status').textContent = 'Your account session could not be checked. You can still explore as a guest.';
   });
+
+const accountLinkParams = new URLSearchParams(location.search);
+const verificationToken = accountLinkParams.get('verify');
+passwordResetToken = accountLinkParams.get('reset') || '';
+if (verificationToken) {
+  history.replaceState(null, '', location.pathname);
+  showAccountPanel('verification-panel');
+  $('#verification-message').textContent = 'Verifying your email address…';
+  fetch('/api/auth/verify-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: verificationToken }),
+  }).then(async (response) => {
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not verify your email.');
+    setUser(result.user);
+    showScreen('hero');
+    $('#account-status').textContent = 'Email verified — you’re all set!';
+  }).catch((error) => {
+    $('#verification-message').textContent = error.message;
+  });
+} else if (passwordResetToken) {
+  history.replaceState(null, '', location.pathname);
+  showAccountPanel('reset-complete-panel');
+}
 
 // floating emojis in the background
 if (!reduce) for (let i = 0; i < 12; i++) {
@@ -379,17 +482,27 @@ function renderGuests(d, progress, progressReady, progressStatus) {
 
   const guestForm = el('form', 'guest-form');
   const name = el('input'); name.type = 'text'; name.maxLength = 80; name.required = true; name.placeholder = 'Guest name'; name.setAttribute('aria-label', 'Guest name');
+  const email = el('input'); email.type = 'email'; email.maxLength = 254; email.placeholder = 'Email (optional)'; email.setAttribute('aria-label', 'Guest email (optional)');
   name.disabled = !progressReady;
+  email.disabled = !progressReady;
   const add = el('button', 'btn', 'Add guest'); add.type = 'submit';
   add.disabled = !progressReady;
-  guestForm.append(name, add);
+  guestForm.append(name, email, add);
   const list = el('ul', 'guest-list');
   const summary = el('p', 'guest-summary', 'Loading guest responses…');
+  const guestStatus = el('p', 'guest-status', '');
   const storageKey = `jashn:guests:${d.invite.id}`;
   const saved = d.planId ? progress.guests : readList(storageKey);
   let replies = [];
   let repliesLoaded = false;
   let replyError = '';
+
+  function persistLocalGuests() {
+    if (d.planId) {
+      progress.guests = saved;
+      queueProgressSave(d.planId, progress, progressStatus);
+    } else saveList(storageKey, saved);
+  }
 
   function updateSummary() {
     if (!repliesLoaded) { summary.textContent = 'Loading guest responses…'; return; }
@@ -398,24 +511,72 @@ function renderGuests(d, progress, progressReady, progressStatus) {
     summary.textContent = `${saved.length} on your list · ${replies.length} replies (${yes} coming, ${replies.length - yes} can’t make it)`;
   }
 
+  async function sendInvitation(guest, button, status) {
+    button.disabled = true;
+    status.textContent = '';
+    try {
+      await progressSaveQueue;
+      const response = await fetch(`/api/plans/${encodeURIComponent(d.planId)}/invites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: guest.name, email: guest.email }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Could not send this invitation.');
+      button.textContent = 'Resend invitation';
+      status.textContent = payload.message || 'Invitation sent.';
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function updateLocalList() {
     list.replaceChildren();
     saved.forEach((guest, index) => {
       const li = el('li', 'guest-row');
-      const details = el('span', '', `${guest.name} · ${guest.status === 'attending' ? 'Going' : guest.status === 'declined' ? 'Can’t make it' : 'Awaiting RSVP'}`);
+      const details = el('div', 'guest-details');
+      details.append(el('strong', '', guest.name), el('span', '', `${guest.email ? ` · ${guest.email}` : ''} · ${guest.status === 'attending' ? 'Going' : guest.status === 'declined' ? 'Can’t make it' : 'Awaiting RSVP'}`));
       li.append(details);
-      if (guest.status === 'pending') {
-        const remove = el('button', 'guest-remove', 'Remove'); remove.type = 'button'; remove.disabled = !progressReady; remove.setAttribute('aria-label', `Remove ${guest.name}`);
-        remove.onclick = () => {
-          saved.splice(index, 1);
-          if (d.planId) {
-            progress.guests = saved;
-            queueProgressSave(d.planId, progress, progressStatus);
-          } else saveList(storageKey, saved);
+      const controls = el('div', 'guest-controls');
+      const edit = el('button', 'guest-remove', 'Edit'); edit.type = 'button'; edit.disabled = !progressReady;
+      edit.setAttribute('aria-label', `Edit ${guest.name}`);
+      edit.onclick = () => {
+        const editor = el('form', 'guest-edit-form');
+        const editName = el('input'); editName.type = 'text'; editName.required = true; editName.maxLength = 80; editName.value = guest.name; editName.setAttribute('aria-label', 'Guest name');
+        const editEmail = el('input'); editEmail.type = 'email'; editEmail.maxLength = 254; editEmail.value = guest.email || ''; editEmail.placeholder = 'Email (optional)'; editEmail.setAttribute('aria-label', 'Guest email (optional)');
+        const save = el('button', 'text-button', 'Save'); save.type = 'submit';
+        const cancel = el('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.onclick = updateLocalList;
+        editor.append(editName, editEmail, save, cancel);
+        li.replaceChildren(editor);
+        editor.onsubmit = (event) => {
+          event.preventDefault();
+          const nextName = editName.value.trim();
+          const nextEmail = editEmail.value.trim().toLowerCase();
+          if (!nextName) return;
+          saved[index] = { ...guest, name: nextName.slice(0, 80), ...(nextEmail ? { email: nextEmail } : {}) };
+          if (!nextEmail) delete saved[index].email;
+          persistLocalGuests();
           updateLocalList();
         };
-        li.append(remove);
+        editName.focus();
+      };
+      controls.append(edit);
+      if (d.planId && guest.email) {
+        const inviteStatus = el('span', 'invite-status', '');
+        const invite = el('button', 'guest-remove', 'Send invitation'); invite.type = 'button'; invite.disabled = !progressReady;
+        invite.onclick = () => sendInvitation(guest, invite, inviteStatus);
+        controls.append(invite, inviteStatus);
       }
+      const remove = el('button', 'guest-remove', 'Remove'); remove.type = 'button'; remove.disabled = !progressReady; remove.setAttribute('aria-label', `Remove ${guest.name}`);
+      remove.onclick = () => {
+          saved.splice(index, 1);
+          persistLocalGuests();
+          updateLocalList();
+      };
+      controls.append(remove);
+      li.append(controls);
       list.append(li);
     });
     if (saved.length) list.hidden = false;
@@ -429,12 +590,10 @@ function renderGuests(d, progress, progressReady, progressStatus) {
       progressStatus.textContent = 'Your host guest list is full. The limit is 40 names per celebration.';
       return;
     }
-    saved.push({ name: guestName.slice(0, 80), status: 'pending' });
-    if (d.planId) {
-      progress.guests = saved;
-      queueProgressSave(d.planId, progress, progressStatus);
-    } else saveList(storageKey, saved);
-    name.value = ''; updateLocalList(); name.focus();
+    const guestEmail = email.value.trim().toLowerCase();
+    saved.push({ name: guestName.slice(0, 80), ...(guestEmail ? { email: guestEmail } : {}), status: 'pending' });
+    persistLocalGuests();
+    name.value = ''; email.value = ''; updateLocalList(); name.focus();
   };
   updateLocalList();
 
@@ -442,23 +601,96 @@ function renderGuests(d, progress, progressReady, progressStatus) {
     ? `/api/plans/${encodeURIComponent(d.planId)}/guests`
     : `/api/rsvp/${encodeURIComponent(d.invite.id)}/guests`;
   const guestOptions = d.planId ? {} : { headers: { 'x-manage-token': d.invite.manageToken } };
-  fetch(guestUrl, guestOptions)
-    .then(async (response) => {
+  async function loadReplies() {
+    try {
+      const response = await fetch(guestUrl, guestOptions);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Could not load RSVP responses.');
       replies = payload.guests || [];
+      replyError = '';
       repliesLoaded = true;
       updateSummary();
+      replyList.replaceChildren();
       replies.forEach((guest) => {
         const li = el('li', 'guest-row');
-        li.append(el('span', '', `${guest.name} · ${guest.attending ? 'Coming' : 'Can’t make it'}${guest.partySize > 1 ? ` · party of ${guest.partySize}` : ''}`));
-        list.append(li);
+        const detail = el('div', 'guest-details');
+        detail.append(el('strong', '', guest.name), el('span', '', ` · ${guest.attending ? 'Coming' : 'Can’t make it'}${guest.partySize > 1 ? ` · party of ${guest.partySize}` : ''}`));
+        const controls = el('div', 'guest-controls');
+        const edit = el('button', 'guest-remove', 'Edit reply'); edit.type = 'button';
+        edit.onclick = () => {
+          const editor = el('form', 'guest-edit-form');
+          const replyName = el('input'); replyName.type = 'text'; replyName.required = true; replyName.maxLength = 80; replyName.value = guest.name; replyName.setAttribute('aria-label', 'Respondent name');
+          const attending = el('select'); attending.setAttribute('aria-label', 'Attendance');
+          [['true', 'Coming'], ['false', 'Can’t make it']].forEach(([value, label]) => {
+            const option = el('option', '', label); option.value = value; option.selected = String(guest.attending) === value; attending.append(option);
+          });
+          const partySize = el('input'); partySize.type = 'number'; partySize.min = '1'; partySize.max = '20'; partySize.required = true; partySize.value = String(guest.partySize); partySize.setAttribute('aria-label', 'Party size');
+          const save = el('button', 'text-button', 'Save reply'); save.type = 'submit';
+          const cancel = el('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.onclick = () => loadReplies();
+          editor.append(replyName, attending, partySize, save, cancel);
+          li.replaceChildren(editor);
+          editor.onsubmit = async (event) => {
+            event.preventDefault();
+            save.disabled = true;
+            try {
+              const response = await fetch(`${guestUrl}/${encodeURIComponent(guest.id)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', ...(d.planId ? {} : guestOptions.headers) },
+                body: JSON.stringify({ name: replyName.value, attending: attending.value === 'true', partySize: Number(partySize.value) }),
+              });
+              const result = await response.json();
+              if (!response.ok) throw new Error(result.error || 'Could not update this reply.');
+              await loadReplies();
+            } catch (error) {
+              guestStatus.textContent = error.message;
+              save.disabled = false;
+            }
+          };
+          replyName.focus();
+        };
+        const remove = el('button', 'guest-remove', 'Delete reply'); remove.type = 'button';
+        remove.onclick = async () => {
+          if (!window.confirm(`Delete ${guest.name}’s RSVP response?`)) return;
+          remove.disabled = true;
+          try {
+            const response = await fetch(`${guestUrl}/${encodeURIComponent(guest.id)}`, {
+              method: 'DELETE',
+              ...(d.planId ? {} : { headers: guestOptions.headers }),
+            });
+            const result = response.status === 204 ? {} : await response.json();
+            if (!response.ok) throw new Error(result.error || 'Could not delete this reply.');
+            await loadReplies();
+          } catch (error) {
+            guestStatus.textContent = error.message;
+            remove.disabled = false;
+          }
+        };
+        controls.append(edit, remove);
+        li.append(detail, controls);
+        replyList.append(li);
       });
       if (replies.length) list.hidden = false;
-    })
-    .catch((error) => { repliesLoaded = true; replyError = error.message; updateSummary(); });
+    } catch (error) {
+      repliesLoaded = true; replyError = error.message; updateSummary();
+    }
+  }
 
-  s.append(el('p', 'section-note', 'Add people here, then share one link. Their replies will appear in this guest list.'), share, guestForm, summary, list);
+  const replyList = el('ul', 'guest-list');
+  loadReplies();
+
+  s.append(
+    el('p', 'section-note', d.planId
+      ? 'Add people here, then copy one RSVP link or email it to saved guests. Edit or remove invitees and manage replies as they come in.'
+      : 'Add people here, then copy one RSVP link. Edit or remove invitees and manage replies as they come in.'),
+    share,
+    guestForm,
+    guestStatus,
+    el('h3', '', 'Invited guests'),
+    list,
+    summary,
+    el('h3', '', 'RSVP replies'),
+    replyList,
+  );
   return s;
 }
 
