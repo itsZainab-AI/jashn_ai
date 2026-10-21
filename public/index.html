@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jashn | Plan your celebration like the main character</title>
+<meta name="description" content="Weddings, birthdays and community events planned with budgets, timelines, vendor checklists and AI ideas.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,500&family=Nunito:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="blobs" aria-hidden="true"><i></i><i></i><i></i></div>
+<div id="floaters" aria-hidden="true"></div>
+<a class="skip" href="#main">Skip to planner</a>
+
+<header class="top"><span class="logo">jashn<span>✦</span></span></header>
+
+<main id="main">
+  <section id="hero" class="hero">
+    <p class="chip">weddings · birthdays · community events</p>
+    <h1>Let's plan a <em>celebration</em> they'll still talk about.</h1>
+    <p class="lead">Tell me the occasion. I'll hand you the budget, the timeline, the vendor list and the ideas. You just show up glowing.</p>
+    <button class="btn" id="start">Start planning ✨</button>
+  </section>
+
+  <form id="wizard" class="card" hidden novalidate>
+    <div class="progress" aria-hidden="true"><b id="bar"></b></div>
+    <p id="stepLabel" class="step-label" aria-live="polite"></p>
+
+    <fieldset class="step">
+      <legend>What are we celebrating?</legend>
+      <div class="picks">
+        <label><input type="radio" name="type" value="wedding" required><span><big>💍</big>Wedding</span></label>
+        <label><input type="radio" name="type" value="birthday"><span><big>🎂</big>Birthday</span></label>
+        <label><input type="radio" name="type" value="community"><span><big>🪔</big>Community event</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset class="step" hidden>
+      <legend>The practical bits</legend>
+      <label class="f">When is it?<input type="date" name="date" id="date" required></label>
+      <label class="f">How many guests?<input type="number" name="guests" min="1" max="5000" inputmode="numeric" placeholder="e.g. 120" required></label>
+      <label class="f">Total budget (₹)<input type="number" name="budget" min="1000" inputmode="numeric" placeholder="e.g. 500000" required></label>
+      <label class="f">City<input type="text" name="city" maxlength="60" placeholder="Pune" autocomplete="address-level2"></label>
+    </fieldset>
+
+    <fieldset class="step" hidden>
+      <legend>What's the vibe?</legend>
+      <label class="f">Describe it in your own words<textarea name="vibe" maxlength="200" rows="4" placeholder="pastel, cosy, lots of fairy lights, zero stress"></textarea></label>
+      <fieldset class="tone-choice">
+        <legend>Planner voice</legend>
+        <div class="tone-options">
+          <label><input type="radio" name="tone" value="english" checked><span>English <small>Warm & easy</small></span></label>
+          <label><input type="radio" name="tone" value="hinglish"><span>Hinglish <small>Apna sa ✨</small></span></label>
+        </div>
+      </fieldset>
+    </fieldset>
+
+    <p id="error" class="error" role="alert"></p>
+    <div class="nav">
+      <button type="button" class="btn ghost" id="back">Back</button>
+      <button type="button" class="btn" id="next">Next</button>
+    </div>
+  </form>
+
+  <section id="loading" class="card center" hidden aria-live="polite"><div class="spin" aria-hidden="true">🎈</div><p id="loadMsg">Warming up the confetti cannons...</p></section>
+
+  <section id="result" hidden></section>
+  <section id="rsvpView" class="card rsvp-view" hidden></section>
+</main>
+<footer>Made with love and a lot of chai in Pune.</footer>
+<script src="app.js"></script>
+</body>
+</html>

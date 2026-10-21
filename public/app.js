@@ -1,0 +1,290 @@
+'use strict';
+const $ = (s) => document.querySelector(s);
+const form = $('#wizard'), steps = [...form.querySelectorAll('.step')];
+const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let step = 0;
+
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+// floating emojis in the background
+if (!reduce) for (let i = 0; i < 12; i++) {
+  const s = el('span', '', ['🎈', '✨', '🎉', '💖', '🌸'][i % 5]);
+  s.style.cssText = `left:${Math.random() * 100}%;animation-duration:${14 + Math.random() * 14}s;animation-delay:${-Math.random() * 20}s`;
+  $('#floaters').append(s);
+}
+$('#date').min = new Date().toISOString().slice(0, 10);
+
+function burst() {
+  if (reduce) return;
+  const colors = ['#ff5fa2', '#b69bff', '#ffb48a', '#ffd86b'];
+  for (let i = 0; i < 60; i++) {
+    const c = el('i', 'confetti');
+    c.style.cssText = `left:${Math.random() * 100}%;background:${colors[i % 4]};--x:${(Math.random() - 0.5) * 300}px;animation-delay:${Math.random() * 0.6}s`;
+    document.body.append(c); setTimeout(() => c.remove(), 3500);
+  }
+}
+
+function show(n) {
+  step = n;
+  steps.forEach((s, k) => { s.hidden = k !== n; });
+  $('#bar').style.width = `${((n + 1) / steps.length) * 100}%`;
+  $('#stepLabel').textContent = `Step ${n + 1} of ${steps.length}`;
+  $('#back').style.visibility = n ? 'visible' : 'hidden';
+  $('#next').textContent = n === steps.length - 1 ? 'Make it happen 🎉' : 'Next';
+  $('#error').textContent = '';
+  steps[n].querySelector('input,textarea')?.focus({ preventScroll: true });
+}
+
+$('#start').onclick = () => { $('#hero').hidden = true; form.hidden = false; show(0); };
+$('#back').onclick = () => show(step - 1);
+$('#next').onclick = () => {
+  const bad = [...steps[step].querySelectorAll('input,textarea')].find((i) => !i.checkValidity());
+  if (step === 0 && !form.type.value) return void ($('#error').textContent = 'Pick one to continue, bestie.');
+  if (bad && step > 0) { $('#error').textContent = bad.validationMessage || 'Please check this field.'; return bad.focus(); }
+  step < steps.length - 1 ? show(step + 1) : submit();
+};
+
+async function submit() {
+  form.hidden = true; $('#loading').hidden = false;
+  const msgs = ['Warming up the confetti cannons...', 'Haggling with imaginary caterers...', 'Picking the perfect fairy lights...'];
+  let m = 0; const t = setInterval(() => { $('#loadMsg').textContent = msgs[++m % msgs.length]; }, 1800);
+  try {
+    const res = await fetch('/api/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+    const data = await res.json();
+    if (!res.ok) throw new Error((data.errors || ['Something went wrong.']).join(' '));
+    render(data);
+  } catch (e) {
+    $('#loading').hidden = true; form.hidden = false; show(1); $('#error').textContent = e.message;
+  } finally { clearInterval(t); }
+}
+
+function section(title) { const s = el('section', 'reveal'); s.append(el('h2', '', title)); return s; }
+
+function render(d) {
+  $('#loading').hidden = true;
+  const out = $('#result'); out.replaceChildren(); out.hidden = false;
+
+  const hero = el('div', 'themeCard'); hero.append(el('h2', '', d.ai.theme), el('p', '', d.ai.tagline));
+  hero.append(el('small', '', `${inr.format(d.budget.perGuest)} per guest`));
+  out.append(hero);
+
+  const b = section('Where the money goes');
+  d.budget.rows.forEach((r) => {
+    const row = el('div', 'row'); const track = el('div', 'track'); const fill = el('b'); fill.style.setProperty('--w', `${r.pct * 3}%`);
+    track.append(fill); row.append(el('span', '', r.name), track, el('span', '', inr.format(r.amount))); b.append(row);
+    requestAnimationFrame(() => setTimeout(() => { fill.style.width = `${Math.min(100, r.pct * 3)}%`; }, 400));
+  });
+  b.append(el('p', '', `Total: ${inr.format(d.budget.total)}`));
+
+  const tl = section('Your timeline'); const ul = el('ul', 'tl');
+  d.timeline.forEach((m) => { const li = el('li'); const time = el('time', '', new Date(m.due).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })); li.append(time, el('span', '', m.task)); ul.append(li); });
+  tl.append(ul);
+
+  const key = `jashn:${d.event.type}:${d.event.date}`; let saved = []; try { saved = JSON.parse(localStorage.getItem(key)) || []; } catch {}
+  const ck = section('Vendor checklist'); const box = el('div', 'chk');
+  d.checklist.forEach((c) => {
+    const l = el('label'); const i = el('input'); i.type = 'checkbox'; i.checked = saved.includes(c.id);
+    i.onchange = () => { const ids = [...box.querySelectorAll('input')].flatMap((x, k) => (x.checked ? [k] : [])); try { localStorage.setItem(key, JSON.stringify(ids)); } catch {} if (ids.length === d.checklist.length) burst(); };
+    l.append(i, el('span', '', c.item)); box.append(l);
+  });
+  ck.append(box);
+
+  const id = section('Ideas just for you'); const grid = el('div', 'ideas');
+  d.ai.ideas.forEach((x) => { const c = el('article', 'idea'); c.append(el('h3', '', x.title), el('p', '', x.detail)); grid.append(c); });
+  id.append(grid);
+
+  const toast = el('p', 'toast reveal', d.ai.toast ? `“${d.ai.toast}”` : '');
+  const venueSection = renderVenues(d);
+  const guestSection = renderGuests(d);
+  const act = el('div', 'actions reveal'); const print = el('button', 'btn', 'Save as PDF'); print.onclick = () => print_(); const again = el('button', 'btn ghost', 'Plan another'); again.onclick = () => location.reload();
+  act.append(print, again);
+  out.append(venueSection, guestSection, b, tl, ck, id, toast, act);
+
+  burst(); out.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth' });
+  const io = new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && e.target.classList.add('in')), { threshold: 0.1 });
+  out.querySelectorAll('.reveal').forEach((n) => io.observe(n));
+}
+
+function renderVenues(d) {
+  const s = section('Real venues near your celebration');
+  const venues = d.venues || { items: [], reason: 'not_configured' };
+  if (venues.available && venues.items.length) {
+    s.append(el('p', 'section-note', `Live Google Maps listings for ${d.event.city || 'Pune'} · check availability and pricing directly with each venue.`));
+    const grid = el('div', 'venue-grid');
+    venues.items.forEach((venue) => {
+      const card = el('article', 'venue-card');
+      const visual = el('div', 'venue-photo');
+      if (venue.photoUrl) {
+        const image = el('img');
+        image.src = venue.photoUrl;
+        image.alt = `${venue.name} venue photo`;
+        image.loading = 'lazy';
+        image.referrerPolicy = 'no-referrer';
+        image.onerror = () => { image.remove(); visual.append(el('span', 'photo-placeholder', 'Venue photo unavailable')); };
+        visual.append(image);
+      } else visual.append(el('span', 'photo-placeholder', 'No venue photo available'));
+      const body = el('div', 'venue-body');
+      body.append(el('h3', '', venue.name), el('p', 'venue-address', venue.address));
+      if (venue.rating) body.append(el('p', 'venue-rating', `★ ${venue.rating.toFixed(1)}${venue.reviewCount ? ` · ${venue.reviewCount.toLocaleString('en-IN')} reviews` : ''}`));
+      const link = el('a', 'map-link', 'View venue on Google Maps ↗');
+      link.href = venue.mapsUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
+      body.append(link);
+      body.append(el('small', 'photo-credit', venue.attribution ? `Photo: ${venue.attribution} · Google` : 'Venue photo via Google Maps'));
+      card.append(visual, body); grid.append(card);
+    });
+    s.append(grid);
+  } else {
+    const city = d.event.city || 'Pune';
+    const copy = venues.reason === 'not_configured'
+      ? 'Live venue photos need a Google Places API key. Meanwhile, browse real local listings and photos on Google Maps.'
+      : venues.reason === 'no_results'
+        ? `No live matches came back for ${city}. Try a broader nearby city or browse Google Maps.`
+        : 'Live venue search is temporarily unavailable. You can still browse current local listings on Google Maps.';
+    s.append(el('p', 'section-note', copy));
+    const link = el('a', 'btn map-search', `Explore venues in ${city} ↗`);
+    link.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${d.event.type} event venues in ${city}`)}`;
+    link.target = '_blank'; link.rel = 'noopener noreferrer'; s.append(link);
+  }
+  return s;
+}
+
+function renderGuests(d) {
+  const s = section('Your guest list & RSVP link');
+  const inviteUrl = new URL(location.href);
+  inviteUrl.search = ''; inviteUrl.hash = ''; inviteUrl.searchParams.set('rsvp', d.invite.id);
+  const share = el('div', 'share-box');
+  const linkLabel = el('label', 'f', 'Share this private RSVP link');
+  const linkInput = el('input'); linkInput.type = 'url'; linkInput.readOnly = true; linkInput.value = inviteUrl.href;
+  linkLabel.append(linkInput);
+  const copy = el('button', 'btn ghost', 'Copy RSVP link'); copy.type = 'button';
+  const copyStatus = el('span', 'copy-status', '');
+  copy.onclick = async () => {
+    try { await navigator.clipboard.writeText(inviteUrl.href); copyStatus.textContent = 'Copied — send it to your guests!'; }
+    catch { copyStatus.textContent = 'Copy isn’t available here. Select the link above and copy it.'; linkInput.focus(); linkInput.select(); }
+  };
+  share.append(linkLabel, copy, copyStatus);
+
+  const guestForm = el('form', 'guest-form');
+  const name = el('input'); name.type = 'text'; name.maxLength = 80; name.required = true; name.placeholder = 'Guest name'; name.setAttribute('aria-label', 'Guest name');
+  const add = el('button', 'btn', 'Add guest'); add.type = 'submit';
+  guestForm.append(name, add);
+  const list = el('ul', 'guest-list');
+  const summary = el('p', 'guest-summary', 'Loading guest responses…');
+  const storageKey = `jashn:guests:${d.invite.id}`;
+  const saved = readList(storageKey);
+  let replies = [];
+  let repliesLoaded = false;
+  let replyError = '';
+
+  function updateSummary() {
+    if (!repliesLoaded) { summary.textContent = 'Loading guest responses…'; return; }
+    if (replyError) { summary.textContent = `${saved.length} on your list · ${replyError}`; return; }
+    const yes = replies.filter((guest) => guest.attending).length;
+    summary.textContent = `${saved.length} on your list · ${replies.length} replies (${yes} coming, ${replies.length - yes} can’t make it)`;
+  }
+
+  function updateLocalList() {
+    list.replaceChildren();
+    saved.forEach((guest, index) => {
+      const li = el('li', 'guest-row');
+      const details = el('span', '', `${guest.name} · ${guest.status === 'attending' ? 'Going' : guest.status === 'declined' ? 'Can’t make it' : 'Awaiting RSVP'}`);
+      const remove = el('button', 'guest-remove', 'Remove'); remove.type = 'button'; remove.setAttribute('aria-label', `Remove ${guest.name}`);
+      remove.onclick = () => { saved.splice(index, 1); saveList(storageKey, saved); updateLocalList(); };
+      li.append(details, remove); list.append(li);
+    });
+    if (saved.length) list.hidden = false;
+    updateSummary();
+  }
+  guestForm.onsubmit = (event) => {
+    event.preventDefault();
+    const guestName = name.value.trim();
+    if (!guestName) return;
+    saved.push({ name: guestName.slice(0, 80), status: 'pending' });
+    saveList(storageKey, saved); name.value = ''; updateLocalList(); name.focus();
+  };
+  updateLocalList();
+
+  fetch(`/api/rsvp/${encodeURIComponent(d.invite.id)}/guests`, { headers: { 'x-manage-token': d.invite.manageToken } })
+    .then(async (response) => {
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Could not load RSVP responses.');
+      replies = payload.guests || [];
+      repliesLoaded = true;
+      updateSummary();
+      replies.forEach((guest) => {
+        const li = el('li', 'guest-row');
+        li.append(el('span', '', `${guest.name} · ${guest.attending ? 'Coming' : 'Can’t make it'}${guest.partySize > 1 ? ` · party of ${guest.partySize}` : ''}`));
+        list.append(li);
+      });
+      if (replies.length) list.hidden = false;
+    })
+    .catch((error) => { repliesLoaded = true; replyError = error.message; updateSummary(); });
+
+  s.append(el('p', 'section-note', 'Add people here, then share one link. Their replies will appear in this guest list.'), share, guestForm, summary, list);
+  return s;
+}
+
+function readList(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(value) ? value.filter((guest) => guest && typeof guest.name === 'string' && ['pending', 'attending', 'declined'].includes(guest.status)) : [];
+  } catch { return []; }
+}
+
+function saveList(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); }
+  catch { /* Guest editing remains available for this page even if storage is full. */ }
+}
+
+async function showRsvpPage(id) {
+  $('#hero').hidden = true; form.hidden = true; $('#loading').hidden = true; $('#result').hidden = true;
+  const view = $('#rsvpView'); view.hidden = false; view.replaceChildren(el('p', '', 'Loading your invitation…'));
+  try {
+    const response = await fetch(`/api/rsvp/${encodeURIComponent(id)}`);
+    const event = await response.json();
+    if (!response.ok) throw new Error(event.error || 'This invitation is unavailable.');
+    view.replaceChildren(el('p', 'chip', 'YOU’RE INVITED'), el('h1', '', event.title), el('p', 'lead', `${new Date(`${event.date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}${event.city ? ` · ${event.city}` : ''}`), el('p', 'section-note', 'We’d love to celebrate with you. Let us know if you can make it!'));
+    const reply = el('form', 'reply-form');
+    const name = el('input'); name.type = 'text'; name.name = 'name'; name.maxLength = 80; name.required = true; name.placeholder = 'Your name'; name.setAttribute('aria-label', 'Your name');
+    const sizeLabel = el('label', 'f', 'How many in your party?');
+    const partySize = el('select'); partySize.name = 'partySize';
+    for (let i = 1; i <= 10; i++) { const option = el('option', '', `${i}${i === 1 ? ' guest' : ' guests'}`); option.value = String(i); partySize.append(option); }
+    sizeLabel.append(partySize);
+    const choice = el('div', 'reply-choices');
+    for (const [value, label] of [['yes', 'Joyfully, yes! 🎉'], ['no', 'Sorry, can’t make it']]) {
+      const wrap = el('label', 'reply-choice'); const input = el('input'); input.type = 'radio'; input.name = 'attending'; input.value = value; input.required = true;
+      wrap.append(input, el('span', '', label)); choice.append(wrap);
+    }
+    const error = el('p', 'error', ''); const submitReply = el('button', 'btn', 'Send my RSVP'); submitReply.type = 'submit';
+    reply.append(name, sizeLabel, choice, error, submitReply);
+    reply.onsubmit = async (submitEvent) => {
+      submitEvent.preventDefault(); error.textContent = '';
+      submitReply.disabled = true;
+      try {
+        const data = new FormData(reply);
+        const result = await fetch(`/api/rsvp/${encodeURIComponent(id)}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: data.get('name'), partySize: Number(data.get('partySize')), attending: data.get('attending') === 'yes' }),
+        });
+        const payload = await result.json();
+        if (!result.ok) throw new Error(payload.error || 'Could not send your RSVP.');
+        const accepted = data.get('attending') === 'yes';
+        view.replaceChildren(
+          el('p', 'chip', 'RSVP RECEIVED'),
+          el('h1', '', accepted ? 'You’re on the list!' : 'Thanks for letting us know'),
+          el('p', 'lead', accepted ? 'Your host will be so happy to hear from you. See you at the celebration!' : 'Your host has your reply. We’ll miss you at the celebration!'),
+        );
+      } catch (err) { error.textContent = err.message; submitReply.disabled = false; }
+    };
+    view.append(reply);
+  } catch (error) {
+    const home = el('a', 'btn ghost', 'Go to Jashn'); home.href = location.pathname;
+    view.replaceChildren(el('h1', '', 'Invitation unavailable'), el('p', 'lead', error.message), home);
+  }
+}
+
+const inviteId = new URLSearchParams(location.search).get('rsvp');
+if (inviteId) showRsvpPage(inviteId);
+
+function print_() { window.print(); }
