@@ -79,15 +79,9 @@ if (!userColumns.some((column) => column.name === 'email_verified_at')) {
 }
 
 const statements = {
-  createUser: db.prepare(
-    'INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)',
-  ),
-  getUserByEmail: db.prepare(
-    'SELECT id, name, email, password_hash, email_verified_at AS emailVerifiedAt FROM users WHERE email = ? COLLATE NOCASE',
-  ),
-  getUser: db.prepare(
-    'SELECT id, name, email, email_verified_at AS emailVerifiedAt FROM users WHERE id = ?',
-  ),
+  createUser: db.prepare('INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)'),
+  getUserByEmail: db.prepare('SELECT id, name, email, password_hash, email_verified_at AS emailVerifiedAt FROM users WHERE email = ? COLLATE NOCASE'),
+  getUser: db.prepare('SELECT id, name, email, email_verified_at AS emailVerifiedAt FROM users WHERE id = ?'),
   verifyUser: db.prepare('UPDATE users SET email_verified_at = ? WHERE id = ?'),
   updatePassword: db.prepare('UPDATE users SET password_hash = ? WHERE id = ?'),
   deleteUser: db.prepare('DELETE FROM users WHERE id = ?'),
@@ -104,9 +98,7 @@ const statements = {
   deleteAccountTokens: db.prepare('DELETE FROM account_tokens WHERE user_id = ? AND purpose = ?'),
   deleteUserSessions: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
   deleteExpiredAccountTokens: db.prepare('DELETE FROM account_tokens WHERE expires_at <= ?'),
-  createSession: db.prepare(
-    'INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)',
-  ),
+  createSession: db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)'),
   getSessionUser: db.prepare(`
     SELECT users.id, users.name, users.email
     FROM sessions JOIN users ON users.id = sessions.user_id
@@ -157,7 +149,6 @@ const statements = {
   deleteRsvpGuest: db.prepare('DELETE FROM rsvp_guests WHERE id = ? AND event_id = ?'),
 };
 
-/** Closes the SQLite connection when it is open. */
 function close() {
   if (db.open) db.close();
 }
