@@ -3,7 +3,7 @@
 Challenge 5 submission. Jashn is a GenAI planning assistant for **weddings, birthdays and community events**. Tell it the occasion, date, guest count, budget and vibe, and it returns a budget breakdown, a dated timeline, a vendor checklist, personalised ideas, a guest list with a shareable RSVP link, and live venue recommendations when Places is configured. Choose English or Hinglish for the planning voice.
 
 Jashn includes a persistent SQLite database, account registration and login, and a private dashboard for saved celebration plans. You can still use the planner without an account, but those plans won't appear in your dashboard.
-
+live demo: https://jashn-ai.onrender.com/
 ## Chosen vertical
 Celebration and event planning, with three event types: wedding, birthday and community event. Currency is INR, because the defaults (vendors, rituals, budget splits) are written for Indian celebrations.
 
