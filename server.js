@@ -10,7 +10,7 @@ const { getVenueRecommendations } = require('./src/venues');
 const rsvp = require('./src/rsvp');
 const database = require('./src/database');
 const { statements } = database;
-const { hashPassword, verifyPassword, createSessionToken, hashToken, SESSION_COOKIE, SESSION_DAYS } = require('./src/auth');
+const { hashPassword, verifyPassword, createSessionToken, createJwt, verifyJwt, hashToken, SESSION_COOKIE, SESSION_DAYS } = require('./src/auth');
 const emailService = require('./src/email');
 
 const app = express();
@@ -41,6 +41,16 @@ function readCookie(req, name) {
     return part.slice(separator + 1).trim();
   }
   return '';
+}
+
+function readBearerToken(req) {
+  const auth = req.headers.authorization || '';
+  if (!auth.startsWith('Bearer ')) return '';
+  return auth.slice(7).trim();
+}
+
+function issueJwtForUser(user) {
+  return createJwt({ sub: user.id, name: user.name, email: user.email }, 60 * 60 * 24 * 7);
 }
 
 function setSessionCookie(res, token) {
@@ -79,15 +89,28 @@ async function sendAccountLink(user, purpose, token) {
 }
 
 app.use('/api', (req, _res, next) => {
-  const token = readCookie(req, SESSION_COOKIE);
-  if (token && /^[A-Za-z0-9_-]{43}$/.test(token)) {
-    const tokenHash = hashToken(token);
-    const user = statements.getSessionUser.get(tokenHash, Date.now());
-    if (user) {
-      req.user = user;
-      req.sessionTokenHash = tokenHash;
-    } else statements.deleteSession.run(tokenHash);
+  let user = null;
+  const bearerToken = readBearerToken(req);
+  if (bearerToken) {
+    try {
+      const payload = verifyJwt(bearerToken);
+      user = { id: payload.sub, name: payload.name, email: payload.email };
+      req.jwtToken = bearerToken;
+    } catch {
+      req.jwtToken = null;
+    }
   }
+  if (!user) {
+    const token = readCookie(req, SESSION_COOKIE);
+    if (token && /^[A-Za-z0-9_-]{43}$/.test(token)) {
+      const tokenHash = hashToken(token);
+      user = statements.getSessionUser.get(tokenHash, Date.now());
+      if (user) {
+        req.sessionTokenHash = tokenHash;
+      } else statements.deleteSession.run(tokenHash);
+    }
+  }
+  req.user = user;
   next();
 });
 
@@ -105,6 +128,7 @@ app.post('/api/auth/register', authLimiter, asyncHandler(async (req, res) => {
   const name = typeof req.body?.name === 'string' ? req.body.name.trim().replace(/\s+/g, ' ') : '';
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const demoMode = String(process.env.DEMO_MODE || '').toLowerCase() === 'true';
   if (!name || /[\u0000-\u001f\u007f<>]/.test(name) || name.length > 80) {
     return res.status(400).json({ error: 'Enter a name up to 80 characters.' });
   }
@@ -114,7 +138,7 @@ app.post('/api/auth/register', authLimiter, asyncHandler(async (req, res) => {
   if (password.length < 8 || password.length > 128) {
     return res.status(400).json({ error: 'Password must be between 8 and 128 characters.' });
   }
-  if (!emailService.isConfigured()) {
+  if (!emailService.isConfigured() && !demoMode) {
     return res.status(503).json({ error: 'Email is not configured yet. Add SMTP settings and APP_URL before creating an account.' });
   }
 
@@ -125,13 +149,29 @@ app.post('/api/auth/register', authLimiter, asyncHandler(async (req, res) => {
     database.db.transaction(() => {
       statements.createUser.run(id, name, email, passwordHash, new Date().toISOString());
       statements.deleteExpiredAccountTokens.run(Date.now());
-      statements.createAccountToken.run(hashToken(token), id, 'email_verification', Date.now() + VERIFICATION_MS, new Date().toISOString());
+      if (!demoMode) {
+        statements.createAccountToken.run(hashToken(token), id, 'email_verification', Date.now() + VERIFICATION_MS, new Date().toISOString());
+      }
     })();
   } catch (error) {
     if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
       return res.status(409).json({ error: 'An account with this email already exists.' });
     }
     throw error;
+  }
+
+  const userRecord = { id, name, email };
+  if (demoMode) {
+    database.db.transaction(() => {
+      statements.verifyUser.run(new Date().toISOString(), id);
+    })();
+    const jwt = issueJwtForUser(userRecord);
+    setSessionCookie(res, createSessionToken());
+    return res.status(201).json({
+      message: 'Demo mode is active — your account is ready to use immediately.',
+      user: publicUser(userRecord),
+      token: jwt,
+    });
   }
 
   try {
@@ -147,18 +187,19 @@ app.post('/api/auth/register', authLimiter, asyncHandler(async (req, res) => {
 app.post('/api/auth/login', authLimiter, asyncHandler(async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const demoMode = String(process.env.DEMO_MODE || '').toLowerCase() === 'true';
   const user = email.length <= 254 ? statements.getUserByEmail.get(email) : null;
   const passwordHash = user ? user.password_hash : await dummyPasswordHash;
   const valid = password.length <= 128 && await verifyPassword(password, passwordHash);
   if (!user || !valid) return res.status(401).json({ error: 'Email or password is incorrect.' });
-  if (!user.emailVerifiedAt) return res.status(403).json({ code: 'EMAIL_NOT_VERIFIED', error: 'Verify your email address before logging in.' });
+  if (!user.emailVerifiedAt && !demoMode) return res.status(403).json({ code: 'EMAIL_NOT_VERIFIED', error: 'Verify your email address before logging in.' });
 
   const token = createSessionToken();
   const expiresAt = Date.now() + SESSION_MS;
   statements.deleteExpiredSessions.run(Date.now());
   statements.createSession.run(hashToken(token), user.id, expiresAt, new Date().toISOString());
   setSessionCookie(res, token);
-  res.json({ user: publicUser(user) });
+  res.json({ user: publicUser(user), token: issueJwtForUser(user) });
 }));
 
 app.post('/api/auth/verify-email', authLimiter, (req, res) => {

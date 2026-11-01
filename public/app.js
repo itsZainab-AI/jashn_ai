@@ -5,8 +5,21 @@ const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR',
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let step = 0;
 let currentUser = null;
+const TOKEN_KEY = 'jashn_demo_token';
 
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+function getStoredToken() { return localStorage.getItem(TOKEN_KEY) || ''; }
+function setStoredToken(token) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+function fetchWithAuth(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const token = getStoredToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  return fetch(url, { ...options, headers });
+}
 
 function showScreen(id) {
   ['splash-screen', 'hero', 'login-screen', 'register-screen', 'account-action-screen', 'dashboard-screen'].forEach((screenId) => {
@@ -22,6 +35,7 @@ function showScreen(id) {
 
 function setUser(user) {
   currentUser = user;
+  if (!user) setStoredToken('');
   $('#guest-nav').hidden = Boolean(user);
   $('#user-nav').hidden = !user;
   $('#user-greeting').textContent = user ? `Hi, ${user.name}` : '';
@@ -59,10 +73,16 @@ async function submitAuth(authForm) {
       throw error;
     }
     authForm.reset();
+    if (result.token) setStoredToken(result.token);
     if (authForm.dataset.authForm === 'register') {
-      showScreen('account-action-screen');
-      showAccountPanel('verification-panel');
-      $('#verification-message').textContent = result.message;
+      if (result.token) {
+        setUser(result.user);
+        showScreen('hero');
+      } else {
+        showScreen('account-action-screen');
+        showAccountPanel('verification-panel');
+        $('#verification-message').textContent = result.message;
+      }
     } else {
       setUser(result.user);
       showScreen('hero');
@@ -148,7 +168,7 @@ $('#logout').onclick = async () => {
   const logout = $('#logout');
   logout.disabled = true;
   try {
-    const response = await fetch('/api/auth/logout', { method: 'POST' });
+    const response = await fetchWithAuth('/api/auth/logout', { method: 'POST' });
     if (!response.ok) throw new Error('Could not log out. Please try again.');
     setUser(null);
     showScreen('hero');
@@ -166,7 +186,7 @@ async function loadDashboard() {
   status.textContent = 'Loading your plans…';
   cards.replaceChildren();
   try {
-    const response = await fetch('/api/plans');
+    const response = await fetchWithAuth('/api/plans');
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Could not load your plans.');
     status.textContent = result.plans.length ? '' : 'Your saved celebrations will appear here.';
@@ -193,7 +213,7 @@ async function loadDashboard() {
 async function openSavedPlan(id) {
   $('#dashboard-status').textContent = 'Opening your plan…';
   try {
-    const response = await fetch(`/api/plans/${encodeURIComponent(id)}`);
+    const response = await fetchWithAuth(`/api/plans/${encodeURIComponent(id)}`);
     const plan = await response.json();
     if (!response.ok) throw new Error(plan.error || 'Could not open this plan.');
     await render(plan);
@@ -206,7 +226,8 @@ fetch('/api/auth/me')
   .then(async (response) => {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Could not check your account session.');
-    setUser(result.user);
+    if (result.user) setUser(result.user);
+    else setUser(null);
   })
   .catch(() => {
     $('#account-status').textContent = 'Your account session could not be checked. You can still explore as a guest.';
@@ -286,7 +307,7 @@ async function submit() {
   const msgs = ['Warming up the confetti cannons...', 'Haggling with imaginary caterers...', 'Picking the perfect fairy lights...'];
   let m = 0; const t = setInterval(() => { $('#loadMsg').textContent = msgs[++m % msgs.length]; }, 1800);
   try {
-    const res = await fetch('/api/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+    const res = await fetchWithAuth('/api/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(form))) });
     const data = await res.json();
     if (!res.ok) throw new Error((data.errors || ['Something went wrong.']).join(' '));
     if (data.planId && !currentUser) {
@@ -324,7 +345,7 @@ async function render(d) {
     progressStatus.textContent = 'Loading saved checklist and guest list…';
     out.append(progressStatus);
     try {
-      const response = await fetch(`/api/plans/${encodeURIComponent(d.planId)}/progress`);
+      const response = await fetchWithAuth(`/api/plans/${encodeURIComponent(d.planId)}/progress`);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not load saved progress.');
       progress = result.progress;
@@ -408,7 +429,7 @@ function queueProgressSave(planId, progress, status) {
     guests: progress.guests.map((guest) => ({ ...guest })),
   };
   progressSaveQueue = progressSaveQueue.then(async () => {
-    const response = await fetch(`/api/plans/${encodeURIComponent(planId)}/progress`, {
+    const response = await fetchWithAuth(`/api/plans/${encodeURIComponent(planId)}/progress`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(snapshot),
@@ -516,7 +537,7 @@ function renderGuests(d, progress, progressReady, progressStatus) {
     status.textContent = '';
     try {
       await progressSaveQueue;
-      const response = await fetch(`/api/plans/${encodeURIComponent(d.planId)}/invites`, {
+      const response = await fetchWithAuth(`/api/plans/${encodeURIComponent(d.planId)}/invites`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: guest.name, email: guest.email }),
@@ -633,7 +654,7 @@ function renderGuests(d, progress, progressReady, progressStatus) {
             event.preventDefault();
             save.disabled = true;
             try {
-              const response = await fetch(`${guestUrl}/${encodeURIComponent(guest.id)}`, {
+              const response = await fetchWithAuth(`${guestUrl}/${encodeURIComponent(guest.id)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', ...(d.planId ? {} : guestOptions.headers) },
                 body: JSON.stringify({ name: replyName.value, attending: attending.value === 'true', partySize: Number(partySize.value) }),
@@ -653,7 +674,7 @@ function renderGuests(d, progress, progressReady, progressStatus) {
           if (!window.confirm(`Delete ${guest.name}’s RSVP response?`)) return;
           remove.disabled = true;
           try {
-            const response = await fetch(`${guestUrl}/${encodeURIComponent(guest.id)}`, {
+            const response = await fetchWithAuth(`${guestUrl}/${encodeURIComponent(guest.id)}`, {
               method: 'DELETE',
               ...(d.planId ? {} : { headers: guestOptions.headers }),
             });
